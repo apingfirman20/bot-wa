@@ -1,10 +1,11 @@
-import makeWASocket, { 
+import makeWASocket, {  
   useMultiFileAuthState,
   downloadMediaMessage
 } from '@whiskeysockets/baileys'
 import { google } from 'googleapis'
 import Tesseract from 'tesseract.js'
 import fs from 'fs'
+import P from 'pino'
 
 // ================= GOOGLE SHEETS =================
 const auth = new google.auth.GoogleAuth({
@@ -27,7 +28,6 @@ async function tambahKeSheet(kategori, deskripsi, jumlah, tipe) {
     range: 'Sheet1!A:E',
     valueInputOption: 'USER_ENTERED',
     requestBody: {
-      // Simpan tanggal dalam format ISO (lebih stabil untuk parsing)
       values: [[new Date().toISOString(), kategori, deskripsi, bersih, tipe]]
     }
   })
@@ -83,11 +83,14 @@ async function laporanPeriode(mode = 'minggu') {
 }
 
 // ================= WHATSAPP BOT ===================
-let lastReport = { minggu: null, bulan: null }   // <<--- Tambahan flag anti-spam
+let lastReport = { minggu: null, bulan: null }
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState('auth_info')
-  const sock = makeWASocket({ auth: state })
+  const sock = makeWASocket({ 
+    auth: state,
+    logger: P({ level: 'error' }) // hanya tampilkan error
+  })
 
   sock.ev.on('creds.update', saveCreds)
   sock.ev.on('connection.update', ({ qr, connection }) => {
@@ -115,16 +118,14 @@ async function startBot() {
       return
     }
 
-
-
     // ---- Foto struk ----
     if (msg.message.imageMessage) {
-      const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: console })
+      const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: P({ level: 'error' }) })
       fs.writeFileSync('struk.jpg', buffer)
 
       const { data: { text: ocrText } } =
-        await Tesseract.recognize(buffer, 'eng+ind', { logger: m => console.log(m) })
-      console.log('Hasil OCR:', ocrText)
+        await Tesseract.recognize(buffer, 'eng+ind', { logger: () => {} }) // disable progress log
+      console.log('📄 Hasil OCR:', ocrText)
 
       const totalRegex = /(Total|TOTAL|Jumlah)\s*[.:]?\s*Rp?\s*([0-9.,]+)/i
       let match = ocrText.match(totalRegex)
